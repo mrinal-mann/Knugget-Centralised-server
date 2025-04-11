@@ -14,16 +14,16 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(uuid())
-  email     String    @unique
-  name      String?
-  password  String?
-  imageUrl  String?
-  credits   Int       @default(0)
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  summaries Summary[]
-  provider  String?
+  id           String    @id @default(uuid())
+  email        String    @unique
+  name         String?
+  passwordHash String?
+  imageUrl     String?
+  credits      Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  summaries    Summary[]
+  provider     String?
 }
 
 model Summary {
