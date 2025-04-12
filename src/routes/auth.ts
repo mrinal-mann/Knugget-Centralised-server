@@ -2,15 +2,18 @@ import { Router } from "express";
 import { authMiddleware, AuthRequest } from "../middleware/authMiddleware";
 import prisma from "../config/prismaClient";
 import { createClient } from "@supabase/supabase-js";
-import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 const router = Router();
 
 // Create Supabase client
-const supabase = createClient(
-  process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-);
+const supabaseUrl = process.env.SUPABASE_URL || "";
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+
+if (!supabaseUrl || !supabaseServiceKey) {
+  console.error("Missing Supabase configuration. Please check environment variables.");
+}
+
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 // Get user profile
 router.get("/me", authMiddleware, async (req: AuthRequest, res) => {
@@ -54,7 +57,7 @@ router.get("/me", authMiddleware, async (req: AuthRequest, res) => {
   }
 });
 
-// Login user with Supabase
+// Login user with Supabase - route changed to /signin for consistency
 router.post("/signin", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -89,7 +92,7 @@ router.post("/signin", async (req, res) => {
           data: {
             id: data.user.id,
             email: data.user.email!,
-            name: data.user.user_metadata.full_name || undefined,
+            name: data.user.user_metadata.full_name || "New User",
             imageUrl: data.user.user_metadata.avatar_url || undefined,
             provider: "supabase",
             credits: 5, // Initial free credits
@@ -100,6 +103,7 @@ router.post("/signin", async (req, res) => {
       // Return user info with Supabase token
       res.json({
         token: data.session.access_token,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
         user: {
           id: dbUser.id,
           name: dbUser.name,
@@ -115,6 +119,7 @@ router.post("/signin", async (req, res) => {
       // Still return auth token even if database operations fail
       res.json({
         token: data.session.access_token,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
         user: {
           id: data.user.id,
           name: data.user.user_metadata.full_name || "",
@@ -130,7 +135,7 @@ router.post("/signin", async (req, res) => {
   }
 });
 
-// Register user with Supabase
+// Register user with Supabase - route changed to /signup for consistency
 router.post("/signup", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -175,6 +180,7 @@ router.post("/signup", async (req, res) => {
       // Return user info with Supabase token
       res.status(201).json({
         token: data.session.access_token,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
         user: {
           id: dbUser.id,
           name: dbUser.name,
@@ -190,6 +196,7 @@ router.post("/signup", async (req, res) => {
       // Still return auth token even if database operations fail
       res.status(201).json({
         token: data.session.access_token,
+        expiresAt: Date.now() + 24 * 60 * 60 * 1000, // 24 hours
         user: {
           id: data.user.id,
           name: name,

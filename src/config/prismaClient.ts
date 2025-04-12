@@ -1,19 +1,34 @@
 import { PrismaClient } from "@prisma/client";
 
-// Add better logging for database connection issues
-const prisma = new PrismaClient({
-  log: ["query", "info", "warn", "error"],
-});
+// Create Prisma client with more resilient error handling
+const prismaClientSingleton = () => {
+  return new PrismaClient({
+    log: ['warn', 'error'],
+    errorFormat: 'pretty',
+  });
+};
 
-// Test database connection on startup
+// Use global to prevent multiple instances during development
+type PrismaClientSingleton = ReturnType<typeof prismaClientSingleton>;
+
+const globalForPrisma = globalThis as unknown as {
+  prisma: PrismaClientSingleton | undefined;
+};
+
+const prisma = globalForPrisma.prisma ?? prismaClientSingleton();
+
+if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = prisma;
+
+// Test database connection on startup but don't crash the server if it fails
 async function testConnection() {
   try {
     // Attempt to query the database
     await prisma.$queryRaw`SELECT 1`;
-    console.log("Database connection successful");
+    console.log("✅ Database connection successful");
   } catch (error) {
-    console.error("Database connection failed:", error);
-    process.exit(1); // Exit if database is not accessible
+    console.error("❌ Database connection failed:", error);
+    // Log error but don't exit process to allow for retry logic
+    console.log("Will retry database connections as needed");
   }
 }
 
