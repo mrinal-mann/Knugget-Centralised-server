@@ -10,23 +10,32 @@ const router = Router();
 router.get("/me", authMiddleware, async (req: AuthRequest, res) => {
   const userId = req.user!.id;
 
-  const userData = await prisma.user.findUnique({
-    where: { id: userId },
-    select: {
-      id: true,
-      name: true,
-      email: true,
-      credits: true,
-      imageUrl: true,
-      createdAt: true,
-    },
-  });
+  try {
+    const userData = await prisma.user.findUnique({
+      where: { id: userId },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        credits: true,
+        imageUrl: true,
+        createdAt: true,
+      },
+    });
 
-  res.json({ user: userData });
+    if (!userData) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    res.json({ user: userData });
+  } catch (error) {
+    console.error("Error fetching user profile:", error);
+    res.status(500).json({ error: "Server error" });
+  }
 });
 
 // Login user
-router.post("/login", async (req, res) => {
+router.post("/signin", async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -78,7 +87,7 @@ router.post("/login", async (req, res) => {
 });
 
 // Register user
-router.post("/register", async (req, res) => {
+router.post("/signup", async (req, res) => {
   try {
     const { name, email, password } = req.body;
 
@@ -100,7 +109,7 @@ router.post("/register", async (req, res) => {
     // Hash password
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Create user
+    // Create user without verification token
     const user = await prisma.user.create({
       data: {
         name,
@@ -115,7 +124,7 @@ router.post("/register", async (req, res) => {
       expiresIn: "24h",
     });
 
-    // Return user info without password
+    // Return user info with token
     res.status(201).json({
       token,
       user: {

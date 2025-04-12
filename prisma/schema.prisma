@@ -24,6 +24,8 @@ model User {
   updatedAt    DateTime  @updatedAt
   summaries    Summary[]
   provider     String?
+  emailVerified Boolean   @default(false)
+  verificationToken String?
 }
 
 model Summary {
