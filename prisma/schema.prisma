@@ -9,22 +9,23 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DIRECT_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model User {
-  id           String    @id @default(uuid())
-  email        String    @unique
-  name         String?
-  passwordHash String?
-  imageUrl     String?
-  credits      Int       @default(0)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  summaries    Summary[]
-  provider     String?
-  emailVerified Boolean   @default(false)
+  id                String    @id @default(uuid())
+  email             String    @unique
+  name              String?
+  passwordHash      String?
+  imageUrl          String?
+  credits           Int       @default(0)
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  summaries         Summary[]
+  provider          String?
+  emailVerified     Boolean   @default(false)
   verificationToken String?
 }
 

@@ -1,10 +1,16 @@
 import { Router } from "express";
 import { authMiddleware, AuthRequest } from "../middleware/authMiddleware";
 import prisma from "../config/prismaClient";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
+import { createClient } from "@supabase/supabase-js";
+import { PrismaClientKnownRequestError } from "@prisma/client/runtime/library";
 
 const router = Router();
+
+// Create Supabase client
+const supabase = createClient(
+  process.env.SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!
+);
 
 // Get user profile
 router.get("/me", authMiddleware, async (req: AuthRequest, res) => {
@@ -30,11 +36,25 @@ router.get("/me", authMiddleware, async (req: AuthRequest, res) => {
     res.json({ user: userData });
   } catch (error) {
     console.error("Error fetching user profile:", error);
+
+    // Return basic user info even if database fails
+    if (req.user) {
+      return res.json({
+        user: {
+          id: req.user.id,
+          name: req.user.name,
+          email: req.user.email,
+          credits: 0,
+          imageUrl: req.user.image,
+        },
+      });
+    }
+
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// Login user
+// Login user with Supabase
 router.post("/signin", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -43,50 +63,74 @@ router.post("/signin", async (req, res) => {
       return res.status(400).json({ error: "Email and password are required" });
     }
 
-    // Find user
-    const user = await prisma.user.findUnique({
-      where: { email },
+    // Use Supabase authentication
+    const { data, error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
     });
 
-    if (!user) {
+    if (error) {
+      return res.status(401).json({ error: error.message });
+    }
+
+    if (!data || !data.user || !data.session) {
       return res.status(401).json({ error: "Invalid credentials" });
     }
 
-    // Check password
-    if (!user.passwordHash) {
-      return res.status(401).json({ error: "Invalid credentials" });
+    try {
+      // Get or create user in our database
+      let dbUser = await prisma.user.findUnique({
+        where: { id: data.user.id },
+      });
+
+      if (!dbUser) {
+        // Create new user
+        dbUser = await prisma.user.create({
+          data: {
+            id: data.user.id,
+            email: data.user.email!,
+            name: data.user.user_metadata.full_name || undefined,
+            imageUrl: data.user.user_metadata.avatar_url || undefined,
+            provider: "supabase",
+            credits: 5, // Initial free credits
+          },
+        });
+      }
+
+      // Return user info with Supabase token
+      res.json({
+        token: data.session.access_token,
+        user: {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          credits: dbUser.credits,
+          imageUrl: dbUser.imageUrl,
+          createdAt: dbUser.createdAt,
+        },
+      });
+    } catch (dbError) {
+      console.error("Database error during login:", dbError);
+
+      // Still return auth token even if database operations fail
+      res.json({
+        token: data.session.access_token,
+        user: {
+          id: data.user.id,
+          name: data.user.user_metadata.full_name || "",
+          email: data.user.email!,
+          credits: 0,
+          imageUrl: data.user.user_metadata.avatar_url || "",
+        },
+      });
     }
-
-    const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
-
-    if (!isPasswordValid) {
-      return res.status(401).json({ error: "Invalid credentials" });
-    }
-
-    // Create token
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
-      expiresIn: "24h",
-    });
-
-    // Return user info without password
-    res.json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        credits: user.credits,
-        imageUrl: user.imageUrl,
-        createdAt: user.createdAt,
-      },
-    });
   } catch (error) {
     console.error("Login error:", error);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// Register user
+// Register user with Supabase
 router.post("/signup", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -97,45 +141,64 @@ router.post("/signup", async (req, res) => {
         .json({ error: "Name, email, and password are required" });
     }
 
-    // Check if user already exists
-    const existingUser = await prisma.user.findUnique({
-      where: { email },
+    // Use Supabase to create a new user
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: name,
+        },
+      },
     });
 
-    if (existingUser) {
-      return res.status(400).json({ error: "Email already in use" });
+    if (error) {
+      return res.status(400).json({ error: error.message });
     }
 
-    // Hash password
-    const passwordHash = await bcrypt.hash(password, 10);
+    if (!data || !data.user || !data.session) {
+      return res.status(400).json({ error: "Failed to create user" });
+    }
 
-    // Create user without verification token
-    const user = await prisma.user.create({
-      data: {
-        name,
-        email,
-        passwordHash,
-        credits: 5, // Give new users 5 free credits
-      },
-    });
+    try {
+      // Create user in our database
+      const dbUser = await prisma.user.create({
+        data: {
+          id: data.user.id,
+          name,
+          email,
+          provider: "supabase",
+          credits: 5, // Give new users 5 free credits
+        },
+      });
 
-    // Create token
-    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET!, {
-      expiresIn: "24h",
-    });
+      // Return user info with Supabase token
+      res.status(201).json({
+        token: data.session.access_token,
+        user: {
+          id: dbUser.id,
+          name: dbUser.name,
+          email: dbUser.email,
+          credits: dbUser.credits,
+          imageUrl: dbUser.imageUrl,
+          createdAt: dbUser.createdAt,
+        },
+      });
+    } catch (dbError) {
+      console.error("Database error during signup:", dbError);
 
-    // Return user info with token
-    res.status(201).json({
-      token,
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        credits: user.credits,
-        imageUrl: user.imageUrl,
-        createdAt: user.createdAt,
-      },
-    });
+      // Still return auth token even if database operations fail
+      res.status(201).json({
+        token: data.session.access_token,
+        user: {
+          id: data.user.id,
+          name: name,
+          email: email,
+          credits: 5,
+          imageUrl: data.user.user_metadata.avatar_url || "",
+        },
+      });
+    }
   } catch (error) {
     console.error("Registration error:", error);
     res.status(500).json({ error: "Server error" });
